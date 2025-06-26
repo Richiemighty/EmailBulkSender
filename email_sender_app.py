@@ -3,6 +3,7 @@ import pandas as pd
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from io import BytesIO
 
 # --- Configuration ---
 SMTP_SERVER = "smtp.gmail.com"
@@ -12,7 +13,7 @@ SENDER_EMAIL = "richiemighty5@gmail.com"
 SENDER_PASSWORD = st.secrets["email_password"]
 LOGO_URL = "https://fadacresources.com/Fadac%20Logo%202000x1000.png"
 
-# --- Email HTML Template ---
+# --- HTML Template ---
 def generate_html_email(name):
     return f"""
     <div style="background-color: white; padding: 30px; border-radius: 8px; max-width: 700px; margin: auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); font-family: Arial, sans-serif; color: #333;">
@@ -29,16 +30,14 @@ def generate_html_email(name):
            <strong>Canada:</strong> 5 Tombrown Drive. Paris. Brant. N3L 0N5</p>
         <hr>
         <small style="font-size: 11px;">
-            Confidentiality: This communication is only for the use of the addressee. It may contain information which is legally privileged, confidential and exempt from disclosure...
-            <br><br>
-            Security Warning: This e-mail is not a 100% secure communications medium...
-            <br><br>
+            Confidentiality: This communication is only for the use of the addressee...<br><br>
+            Security Warning: This e-mail is not a 100% secure communications medium...<br><br>
             Viruses: Please ensure the recipient verifies that the email is virus-free...
         </small>
     </div>
     """
 
-# --- Send Email Function ---
+# --- Email Sender ---
 def send_html_email(to_email, to_name):
     msg = MIMEMultipart('alternative')
     msg['From'] = f"{SENDER_NAME} <{SENDER_EMAIL}>"
@@ -55,66 +54,84 @@ def send_html_email(to_email, to_name):
         server.quit()
         return True
     except Exception as e:
-        st.error(f"Error sending to {to_email}: {e}")
-        return False
+        return f"❌ Failed to send to {to_email}: {e}"
 
 # --- Streamlit UI ---
-st.set_page_config("📨 Email Preview & Bulk Sender", layout="wide")
-st.title("📬 Professional Email Preview & Sender")
+st.set_page_config("📨 Email Preview & Sender", layout="wide")
+st.title("📬 Bulk Email Sender with Preview and Status Tracker")
 
 uploaded_file = st.file_uploader("📤 Upload CSV (Name, Email, Status)", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
-
     if not all(col in df.columns for col in ['Name', 'Email', 'Status']):
-        st.error("CSV must contain columns: Name, Email, Status")
+        st.error("CSV must include: Name, Email, Status")
     else:
         df['Status'] = df['Status'].fillna("").astype(str).str.strip().str.upper()
-        df_to_send = df[df['Status'] != "SENT"]
+        df_to_send = df[df['Status'] != "SENT"].copy()
 
         if df_to_send.empty:
-            st.success("🎉 All emails are already sent!")
+            st.success("🎉 All emails have already been sent.")
         else:
-            st.success(f"Found {len(df_to_send)} unsent recipient(s)")
+            st.success(f"📋 {len(df_to_send)} unsent recipients found.")
 
-            # -- Email Preview Index Logic --
+            # Initialize preview index
             if 'preview_index' not in st.session_state:
                 st.session_state.preview_index = 0
+            def next_preview(): st.session_state.preview_index = (st.session_state.preview_index + 1) % len(df_to_send)
+            def prev_preview(): st.session_state.preview_index = (st.session_state.preview_index - 1) % len(df_to_send)
 
-            def next_preview():
-                st.session_state.preview_index = (st.session_state.preview_index + 1) % len(df_to_send)
-
-            def prev_preview():
-                st.session_state.preview_index = (st.session_state.preview_index - 1) % len(df_to_send)
-
-            # -- Controls --
+            # Navigation controls
             col1, col2, col3 = st.columns([1, 1, 1])
-            with col1:
-                st.button("⬅️ Previous", on_click=prev_preview)
-            with col2:
-                st.markdown(f"<center>**Previewing {st.session_state.preview_index + 1} of {len(df_to_send)}**</center>", unsafe_allow_html=True)
-            with col3:
-                st.button("➡️ Next", on_click=next_preview)
+            with col1: st.button("⬅️ Previous", on_click=prev_preview)
+            with col2: st.markdown(f"<center>**Previewing {st.session_state.preview_index + 1} of {len(df_to_send)}**</center>", unsafe_allow_html=True)
+            with col3: st.button("➡️ Next", on_click=next_preview)
 
-            # -- Show Current Preview --
+            # Display current preview
             current_row = df_to_send.iloc[st.session_state.preview_index]
             st.markdown(f"### ✉️ Preview: {current_row['Name']} - {current_row['Email']}")
             st.components.v1.html(generate_html_email(current_row['Name']), height=600, scrolling=True)
 
-            # -- Action Buttons --
             colA, colB = st.columns(2)
+
+            # Status log tracker
+            status_log = []
 
             with colA:
                 if st.button("📧 Send to This Recipient"):
-                    if send_html_email(current_row['Email'], current_row['Name']):
+                    result = send_html_email(current_row['Email'], current_row['Name'])
+                    if result is True:
                         st.success(f"✅ Email sent to {current_row['Name']}")
+                        df.loc[df['Email'] == current_row['Email'], 'Status'] = 'SENT'
+                    else:
+                        st.error(result)
 
             with colB:
                 if st.button("🚀 Send to All Unsent Recipients"):
                     success = 0
-                    with st.spinner("Sending..."):
+                    log_msgs = []
+                    with st.spinner("Sending emails..."):
                         for _, row in df_to_send.iterrows():
-                            if send_html_email(row['Email'], row['Name']):
+                            result = send_html_email(row['Email'], row['Name'])
+                            if result is True:
                                 success += 1
-                    st.success(f"✅ {success} emails sent successfully!")
+                                df.loc[df['Email'] == row['Email'], 'Status'] = 'SENT'
+                                log_msgs.append(f"✅ Sent: {row['Email']}")
+                            else:
+                                log_msgs.append(result)
+
+                    st.success(f"✅ Sent {success} emails successfully.")
+                    st.info("📄 Status Log:")
+                    for msg in log_msgs:
+                        st.markdown(f"- {msg}")
+
+            # Allow download of updated file
+            st.markdown("---")
+            st.markdown("### 📥 Download Updated CSV (with SENT status)")
+            updated_csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📁 Download CSV",
+                data=updated_csv,
+                file_name="updated_emails.csv",
+                mime="text/csv"
+            )
