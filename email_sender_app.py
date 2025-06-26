@@ -28,7 +28,7 @@ def generate_html_email(name):
     <strong>Canada:</strong> 5 Tombrown Drive. Paris. Brant. N3L 0N5</p>
     <hr>
     <small>
-        Confidentiality: This communication is only for the use of the addressee. It may contain information which is legally privileged, confidential and exempt from disclosure. If you are not the intended recipient you must not read, copy, distribute or disseminate this communication or any attachments to anyone other than the addressee or use the information it contains. If you receive this communication in error, please inform us by telephone at once. Tel: +234 908 600 0078United Kingdom; Email: hello@fadacresources.com website: https://fadacresources.com
+        Confidentiality: This communication is only for the use of the addressee. It may contain information which is legally privileged, confidential and exempt from disclosure. If you are not the intended recipient you must not read, copy, distribute or disseminate this communication or any attachments to anyone other than the addressee or use the information it contains. If you receive this communication in error, please inform us by telephone at once. Tel: +234 908 600 0078 United Kingdom; Email: hello@fadacresources.com website: https://fadacresources.com
         <br><br>
         Security Warning: Please note that this e-mail has been created in the knowledge that Internet e-mail is not a 100% secure communications medium. We advise that you understand and observe this lack of security when e-mailing us. 
         <br><br>
@@ -69,29 +69,35 @@ if uploaded_file:
     if not all(col in df.columns for col in ['Name', 'Email', 'Status']):
         st.error("CSV must include columns: Name, Email, Status")
     else:
-        df_to_send = df[df['Status'].str.upper().ne("SENT") | df['Status'].isna()]
+        # 🛠 Fix: Ensure 'Status' is a clean string before filtering
+        df['Status'] = df['Status'].fillna("").astype(str).str.strip().str.upper()
+        df_to_send = df[df['Status'] != "SENT"]
+
         st.success(f"{len(df_to_send)} unsent emails found.")
 
-        st.markdown("### 📬 Email Preview")
-        selected = st.slider("Preview recipient", 0, len(df_to_send)-1, 0)
-        preview_name = df_to_send.iloc[selected]['Name']
-        preview_email = df_to_send.iloc[selected]['Email']
+        if not df_to_send.empty:
+            st.markdown("### 📬 Email Preview")
+            selected = st.slider("Preview recipient", 0, len(df_to_send)-1, 0)
+            preview_name = df_to_send.iloc[selected]['Name']
+            preview_email = df_to_send.iloc[selected]['Email']
 
-        st.write(f"**Recipient:** {preview_name} - {preview_email}")
-        st.components.v1.html(generate_html_email(preview_name), height=400, scrolling=True)
+            st.write(f"**Recipient:** {preview_name} - {preview_email}")
+            st.components.v1.html(generate_html_email(preview_name), height=400, scrolling=True)
 
-        col1, col2 = st.columns(2)
+            col1, col2 = st.columns(2)
 
-        with col1:
-            if st.button("📧 Send to This Recipient"):
-                if send_html_email(preview_email, preview_name):
-                    st.success(f"✅ Email sent to {preview_name} ({preview_email})")
+            with col1:
+                if st.button("📧 Send to This Recipient"):
+                    if send_html_email(preview_email, preview_name):
+                        st.success(f"✅ Email sent to {preview_name} ({preview_email})")
 
-        with col2:
-            if st.button("🚀 Send to All Unsent Recipients"):
-                success_count = 0
-                with st.spinner("Sending emails..."):
-                    for _, row in df_to_send.iterrows():
-                        if send_html_email(row['Email'], row['Name']):
-                            success_count += 1
-                st.success(f"✅ Sent {success_count} emails successfully!")
+            with col2:
+                if st.button("🚀 Send to All Unsent Recipients"):
+                    success_count = 0
+                    with st.spinner("Sending emails..."):
+                        for _, row in df_to_send.iterrows():
+                            if send_html_email(row['Email'], row['Name']):
+                                success_count += 1
+                    st.success(f"✅ Sent {success_count} emails successfully!")
+        else:
+            st.info("All recipients are already marked as SENT.")
